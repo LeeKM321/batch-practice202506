@@ -26,7 +26,7 @@ public class Order {
     private Integer amount;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(nullable = false, length = 20)
     private OrderStatus status;
 
     @Column(nullable = false)
@@ -34,8 +34,9 @@ public class Order {
 
     private LocalDateTime processedDate;
 
-}
 
-public enum OrderStatus {
-    PENDING, PROCESSING, COMPLETED, CANCELLED
+    public enum OrderStatus {
+        PENDING, PROCESSING, COMPLETED, CANCELLED
+    }
+
 }

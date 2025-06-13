@@ -1,12 +1,17 @@
 package com.playdata.batchpractice.config;
 
 import com.playdata.batchpractice.entity.Order;
-import com.playdata.batchpractice.entity.OrderStatus;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.batch.core.Job;
+import org.springframework.batch.core.Step;
+import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.repository.JobRepository;
+import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.item.ItemProcessor;
+import org.springframework.batch.item.database.JdbcBatchItemWriter;
 import org.springframework.batch.item.database.JdbcCursorItemReader;
+import org.springframework.batch.item.database.builder.JdbcBatchItemWriterBuilder;
 import org.springframework.batch.item.database.builder.JdbcCursorItemReaderBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -69,13 +74,72 @@ public class OrderBatchConfig {
 
             // 비즈니스 로직: 금액에 따른 처리
             if (order.getAmount() < 10000) {
-                order.setStatus(OrderStatus.COMPLETED); // 소액은 즉시 완료
+                order.setStatus(Order.OrderStatus.COMPLETED); // 소액은 즉시 완료
             } else {
-                order.setStatus(OrderStatus.PROCESSING); // 일반 주문은 처리 중으로
+                order.setStatus(Order.OrderStatus.PROCESSING); // 일반 주문은 처리 중으로
             }
+
+            log.info("Enum 이름: {}, toString: {}", order.getStatus().name(), order.getStatus().toString());
 
             return order;
         };
+    }
+
+    // 3. ItemWriter - 데이터베이스 업데이트
+    @Bean
+    public JdbcBatchItemWriter<Order> orderWriter() {
+//        return new JdbcBatchItemWriterBuilder<Order>()
+//                .dataSource(dataSource)
+//                .sql(
+//                        """
+//                        UPDATE orders
+//                        SET status = :status, processed_date = :processedDate
+//                        WHERE id = :id
+//                        """
+//                )
+//                // CSV 파일을 읽어들여서 sql 작성 시에는 따로 매핑을 진행
+//                // DB 데이터를 읽어들일 때는 이미 매핑 정보가 있음.
+//                .beanMapped()
+//                .build();
+
+        // beanMapped()를 활용해서 Order 객체의 status를 sql에 채워넣으려 했는데,
+        // status의 toString을 호출할 수 없어서 맞지 않는 값이 update에 전달되는 거 같아요.
+        // 수동으로 sql에 들어갈 값을 직접 채워 넣었습니다. (setItemPreparedStatementSetter)
+        JdbcBatchItemWriter<Order> writer = new JdbcBatchItemWriter<>();
+        writer.setDataSource(dataSource);
+        writer.setSql("""
+            UPDATE orders
+            SET status = ?, processed_date = ?
+            WHERE id = ?
+            """);
+
+        writer.setItemPreparedStatementSetter((order, ps) -> {
+            ps.setString(1, order.getStatus().toString()); // 또는 getStatus().name() 등 원하는 값
+            ps.setObject(2, order.getProcessedDate());
+            ps.setLong(3, order.getId());
+        });
+
+        writer.afterPropertiesSet();
+        return writer;
+    }
+
+    // 4. step
+    @Bean
+    public Step orderProcessStep() {
+        return new StepBuilder("orderProcessStep", jobRepository)
+                .<Order, Order>chunk(5, transactionManager)
+                .reader(pendingOrderReader())
+                .processor(orderProcessor())
+                .writer(orderWriter())
+                .build();
+    }
+
+    // 5. Job
+    @Bean
+    public Job orderProcessJob() {
+        return new JobBuilder("orderProcessJob", jobRepository)
+                .start(orderProcessStep())
+                .build();
     }
 
 

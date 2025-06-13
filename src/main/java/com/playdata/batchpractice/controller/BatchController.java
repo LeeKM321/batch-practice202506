@@ -20,7 +20,8 @@ public class BatchController {
 
     private final JobLauncher jobLauncher; // 배치 잡 실행기
     private final Job csvToDbJob; // 직접 작성한 배치 작업 (빈등록 해놓음)
-    private final Job orderProcessJob; // Order쪽 빈 등록된 job
+    private final Job orderProcessJob; // Order쪽 빈 등록된
+    private final Job faultTolerantJob;
     private final OrderTestDataService orderTestDataService;
 
     @PostMapping("/csv-to-db")
@@ -73,6 +74,29 @@ public class BatchController {
             return "배치 실행 실패!: " + e.getMessage();
         }
     }
+
+    @PostMapping("/fault-torelant")
+    public String runFaultTorelant() {
+        try {
+            JobParameters jobParameters = new JobParametersBuilder()
+                    .addLong("timestamp", System.currentTimeMillis()) // 현재 시간 추가
+                    .toJobParameters();
+
+            log.info(" ========== 예외 처리 배치 작업 시작! =========");
+            JobExecution jobExecution = jobLauncher.run(faultTolerantJob, jobParameters);
+            log.info(" ========== 배치 완료! 상태: {} =========", jobExecution.getStatus());
+
+            return String.format("배치 실행 완료! 상태: %s, 처리된 아이템 수: %d건, Skip: %d건",
+                    jobExecution.getStatus(),
+                    jobExecution.getStepExecutions().iterator().next().getWriteCount(),
+                    jobExecution.getStepExecutions().iterator().next().getSkipCount());
+
+        } catch (Exception e) {
+            log.error("배치 실행 중 오류 발생!", e);
+            return "배치 실행 실패!: " + e.getMessage();
+        }
+    }
+
 
 }
 
